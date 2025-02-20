@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-YAGV_VERSION = "0.5.8"        # -- check Makefile and setup.py too
+YAGV_VERSION = "0.7.0"        # -- check Makefile and setup.py too
 
 import pyglet
 import math

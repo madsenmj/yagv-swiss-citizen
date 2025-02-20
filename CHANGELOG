@@ -1,3 +1,6 @@
+0.7.0:
+  - Updated to show Citizen Swiss machine toolpaths
+
 0.5.8:
   - support added for G2/G3 arc extrusions as used by ArcWelder
   - CHANGELOG added
