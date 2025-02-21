@@ -1,0 +1,8 @@
+colorama==0.4.6
+iniconfig==2.0.0
+numpy==2.2.3
+packaging==24.2
+pluggy==1.5.0
+pyglet==1.5.27
+pytest==8.3.4
+wheel==0.45.1

@@ -64,3 +64,12 @@ Given `--gcode-comments` is enabled for Slic3r and PrusaSlicer.
 ![Screenshot](img/screenshot-nonplanar.png)
 Gcode from [Slicer4RTN](https://github.com/Spiritdude/Slicer4RTN), conic/tilted slicer for 4- and 5-axis FDM printers
 
+
+
+
+## Using Older Versions of Python
+
+1. using miniconda: `conda create --name yagv python=3.11`
+2. `conda activate yagv`
+3. `pip install -r requirements.txt`
+
