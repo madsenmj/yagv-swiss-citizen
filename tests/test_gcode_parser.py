@@ -183,3 +183,17 @@ class Test_variables:
         parser.parseCode(lines)
         position = parser.model.position
         assert pytest.approx(position['X']) == 1.8
+
+class Test_Segment_Classification:
+    def test_counts_layers(self):
+        parser = GcodeParser()
+        lines = ["T100","G1X1.0Y2.0Z-1.2", "T2100", "G1U1.0V2.0W-1.2","G1U1.0", "T100","G1X1.0Y2.0Z-1.2","G1W1.0"]
+        parser.parseCode(lines)
+        parser.model.classifySegments()
+        segments = parser.model.segments
+        assert len(segments) == 5
+        assert segments[0].layerIdx == 0
+        assert segments[1].layerIdx == 1
+        assert segments[2].layerIdx == 1
+        assert segments[3].layerIdx == 2
+        assert segments[4].layerIdx == 2

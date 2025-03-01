@@ -405,56 +405,19 @@ class GcodeModel:
 		
 		
 	def classifySegments(self):
-		# apply intelligence, to classify segments
-		
-		# start model at 0
-		coords = {
-			"X":0.0,
-			"Y":0.0,
-			"Z":0.0,
-			"F":0.0,
-			"E":0.0}
+		# apply intelligence, to classify segment layers
 			
 		# first layer at Z=0
 		currentLayerIdx = 0
-		currentLayerZ = 0
+		currentLayerTool = self.segments[0].tool
 		
 		for seg in self.segments:
-			# default style is fly (move, no extrusion)
-			style = "fly"
-			
-			# no horizontal movement, but extruder movement: retraction/refill
-			if (
-				(seg.coords["X"] == coords["X"]) and
-				(seg.coords["Y"] == coords["Y"]) and
-				(seg.coords["E"] != coords["E"]) ):
-					style = "retract" if (seg.coords["E"] < coords["E"]) else "restore"
-			
-			# some horizontal movement, and positive extruder movement: extrusion
-			if (
-				( (seg.coords["X"] != coords["X"]) or (seg.coords["Y"] != coords["Y"]) ) and
-				(seg.coords["E"] > coords["E"]) ):
-				style = "extrude"
-			
-			# positive extruder movement in a different Z signals a layer change for this segment
-			if (
-				(seg.coords["E"] > coords["E"]) and
-				(seg.coords["Z"] != currentLayerZ) ):
-				currentLayerZ = seg.coords["Z"]
+			if seg.tool != currentLayerTool:
+				currentLayerTool = seg.tool
 				currentLayerIdx += 1
 			
-			# set style and layer in segment
-			seg.style = style
 			if not self.parser.layer_count:
 				seg.layerIdx = currentLayerIdx
-			
-			#print coords
-			#print seg.coords
-			#print "%s (%s  | %s)"%(style, str(seg.coords), seg.line)
-			#print
-			
-			# execute segment
-			coords = seg.coords
 			
 			
 	def splitLayers(self):
@@ -477,7 +440,7 @@ class GcodeModel:
 		for seg in self.segments:
 			# next layer
 			if currentLayerIdx != seg.layerIdx:
-				layer = Layer(coords["Z"])
+				layer = Layer(seg.tool)
 				layer.start = coords
 				self.layers.append(layer)
 				currentLayerIdx = seg.layerIdx
@@ -490,9 +453,8 @@ class GcodeModel:
 		self.topLayer = len(self.layers)-1
 		
 	def calcMetrics(self):
-		# init distances and extrudate
+		# init distances
 		self.distance = 0
-		self.extrudate = 0
 		
 		# init model bbox
 		self.bbox = None
@@ -512,7 +474,6 @@ class GcodeModel:
 			
 			# init distances and extrudate
 			layer.distance = 0
-			layer.extrudate = 0
 			#layer.range = { }
 			#for k in ['X','Y','Z']: layer.range[k] = { }
 			layer.bbox = extend(layer.bbox, coords)
@@ -531,13 +492,9 @@ class GcodeModel:
 				#for k in ['X','Y','Z']:
 				#	if layer.range[k].max < coords[k]: layer.range[k].max = coords[k]
 				#	if layer.range[k].min > coords[k]: layer.range[k].min = coords[k]
-
-				# calc extrudate
-				seg.extrudate = (seg.coords["E"]-coords["E"])
-				
+	
 				# accumulate layer metrics
 				layer.distance += seg.distance
-				layer.extrudate += seg.extrudate
 				
 				# execute segment
 				coords = seg.coords
@@ -545,14 +502,10 @@ class GcodeModel:
 				# include end point
 				extend(self.bbox, coords)
 
-				if seg.extrudate>0:				  
-					extend(layer.bbox, coords)   # -- layer bbox is only when extruding
-
 			layer.end = coords			
 
 			# accumulate total metrics
 			self.distance += layer.distance
-			self.extrudate += layer.extrudate
 		
 	def postProcess(self):
 		self.classifySegments()
@@ -560,7 +513,7 @@ class GcodeModel:
 		self.calcMetrics()
 
 	def __str__(self):
-		return "<GcodeModel: len(segments)=%d, len(layers)=%d, distance=%f, extrudate=%f, bbox=%s>"%(len(self.segments), len(self.layers), self.distance, self.extrudate, self.bbox)
+		return "<GcodeModel: len(segments)=%d, len(layers)=%d, distance=%f, bbox=%s>"%(len(self.segments), len(self.layers), self.distance, self.bbox)
 	
 class Segment:
 	def __init__(self, type, coords, lineNb, line, tool=None):
@@ -569,23 +522,20 @@ class Segment:
 		self.lineNb = lineNb
 		self.line = line
 		self.tool = tool
-		self.style = None
 		self.layerIdx = None
 		self.distance = None
-		self.extrudate = None
 	def __str__(self):
-		return "<Segment: type=%s, lineNb=%d, style=%s, layerIdx=%d, distance=%f, extrudate=%f>"%(self.type, self.lineNb, self.style, self.layerIdx, self.distance, self.extrudate)
+		return "<Segment: type=%s, lineNb=%d, tool=%s, layerIdx=%d, distance=%f>"%(self.type, self.lineNb, self.tool, self.layerIdx, self.distance)
 		
 class Layer:
-	def __init__(self, Z):
-		self.Z = Z
+	def __init__(self, tool):
+		self.tool = tool
 		self.segments = []
 		self.distance = None
-		self.extrudate = None
 		self.bbox = None
 
 	def __str__(self):
-		return "<Layer: Z=%f, len(segments)=%d, distance=%f, extrudate=%f>"%(self.Z, len(self.segments), self.distance, self.extrudate)
+		return "<Layer: Z=%f, len(segments)=%d, distance=%f>"%(self.Z, len(self.segments), self.distance)
 		
 		
 if __name__ == '__main__':

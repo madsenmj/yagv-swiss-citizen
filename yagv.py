@@ -53,6 +53,7 @@ class App:
 		self.zoom = 1.0
 		self.conf = { }
 		self.conf['bed_size'] = [ 200, 200 ]
+		self.hover_text = None
 	
 	def main(self):
 		
@@ -132,7 +133,10 @@ class App:
 		self.path = path
 
 		parser = GcodeParser()
-		self.model = parser.parseCode(path)
+		code = parser.file_to_lines_array(path)
+		model = parser.parseCode(code)
+		model.postProcess()
+		self.model = model
 
 		print("Done! %s" % self.model)
 		
@@ -183,15 +187,6 @@ class App:
 	
 	def renderIndexedColors(self):
 		t1 = time.time()
-		# pre-render segments to colors in the index
-		styleToColoridx = {
-			"extrude" : 0,
-			"fly" : 1,
-			"retract" : 2,
-			"restore" : 3,
-	  		"extrude.wall": 4,
-			"extrude.support": 5
-			}
 		
 		# all the styles for all layers
 		self.vertex_indexed_colors = []
@@ -202,13 +197,8 @@ class App:
 			# index for this layer
 			layer_vertex_indexed_colors = []
 			for seg in layer.segments:
-				# get color index for this segment
-				if seg.style == 'extrude' and (seg.type == 'G1:wall' or seg.type == 'G1:shell' or seg.type == 'G1:perimeter' or seg.type.find('shell') or seg.type.find('shell')):
-					styleCol = styleToColoridx['extrude.wall']
-				elif seg.style == 'extrude' and seg.type == 'G1:support':
-					styleCol = styleToColoridx['extrude.support']
-				else:
-					styleCol = styleToColoridx[seg.style]
+				tool = seg.tool
+				styleCol = int(tool[1:])
 				# append color twice (once per end)
 				layer_vertex_indexed_colors.extend((styleCol, styleCol))
 			
@@ -347,9 +337,9 @@ class App:
 	def layer_update(self):
 		#self.window.layerLabel.text = "layer %d (z=%.2f)" % (self.layerIdx,self.model.layers[self.layerIdx].start['Z'])
 		if self.model.layers[self.layerIdx].bbox.zmin != self.model.layers[self.layerIdx].bbox.zmax:
-			self.window.layerLabel.text = "layer %d (z=%.2f..%.2f)" % (self.layerIdx,self.model.layers[self.layerIdx].bbox.zmin,self.model.layers[self.layerIdx].bbox.zmax)
+			self.window.layerLabel.text = "layer %d (%s..%s)" % (self.layerIdx,self.model.layers[self.layerIdx].tool,self.model.layers[self.layerIdx].tool)
 		else:
-			self.window.layerLabel.text = "layer %d (z=%.2f)" % (self.layerIdx,self.model.layers[self.layerIdx].start['Z'])
+			self.window.layerLabel.text = "layer %d (%s)" % (self.layerIdx,self.model.layers[self.layerIdx].tool)
 		#print(self.model.layers[self.layerIdx].bbox.zmin)
 
 	def layer_up(self):
@@ -396,6 +386,14 @@ class App:
 		self.panningStartX = None
 		self.panningStartY = None
 
+	def check_hover(self, x, y):
+		if 100 <= x <= 200 and 100 <= y <= 150:
+			if self.hover_text is None:
+				self.hover_text = 'This is hover text!'
+		else:
+			if self.hover_text is not None:
+				self.hover_text = None
+
 
 def glLine(p1,p2,c):
 	glBegin(GL_LINES)
@@ -410,6 +408,7 @@ class MyWindow(pyglet.window.Window):
 	def __init__(self, app, **kwargs):
 		pyglet.window.Window.__init__(self, **kwargs)
 		self.app = app
+		self.hover_label = None
 		#self.hud()
 	
 	# hud info
@@ -438,7 +437,7 @@ class MyWindow(pyglet.window.Window):
 										font_size=10,color=c_texti,
 										anchor_y='top')
 		filename = os.path.basename(self.app.path)
-		self.statsLabel.text = "%s: %d layers (%d segments), %.1fm filament" % (filename, len(self.app.model.layers), len(self.app.model.segments), self.app.model.extrudate/1000.0)
+		self.statsLabel.text = "%s: %d layers (%d segments)" % (filename, len(self.app.model.layers), len(self.app.model.segments))
 		
 		## fps counter
 		self.fpsLabel = pyglet.text.Label(	"",
@@ -449,9 +448,9 @@ class MyWindow(pyglet.window.Window):
 
 		# status
 		## current Layer
-		self.layerLabel = pyglet.text.Label(	"layer %d (z=%.2f)" % (
+		self.layerLabel = pyglet.text.Label(	"layer %d (%s)" % (
 			self.app.layerIdx,
-			self.app.model.layers[self.app.layerIdx].start['Z'],
+			self.app.model.layers[self.app.layerIdx].tool,
 			#self.app.model.layers[self.app.layerIdx].end['Z']
 			#self.app.model.layers[self.app.layerIdx].bbox.zmin,
 			#self.app.model.layers[self.app.layerIdx].bbox.zmax
@@ -561,6 +560,14 @@ class MyWindow(pyglet.window.Window):
 		self.app.zoom = max(1.0, self.app.zoom * z)
 		#print('mouse scroll:', `x, y, dx, dy`, `z, self.app.zoom`)
 
+	def on_mouse_motion(self, x, y, dx, dy):
+		self.app.check_hover(x, y)
+		if self.app.hover_text is not None:
+			self.hover_label = pyglet.text.Label(self.app.hover_text, x=x + 10, y=y, anchor_y='bottom',color=(0, 0, 0, 255))
+		else:
+			self.hover_label = None
+		# TODO: How do we label the segments? I'd like to mouse-over and have it show the segment line text...
+
 	def on_draw(self):
 		#print("draw")
 		
@@ -618,11 +625,11 @@ class MyWindow(pyglet.window.Window):
 		glVertex3f(0,0,1); glVertex3f(0,0,self.app.model.bbox.zmax)
 		glEnd()
 		
-		# draw bed grid
-		for y in range(0,self.app.conf['bed_size'][1]+1):
-			glLine([0,y,0],[self.app.conf['bed_size'][0],y,0],[colorMap['grid'][0],colorMap['grid'][1],colorMap['grid'][2],0.3 if y%10 == 0 else 0.1])
-		for x in range(0,self.app.conf['bed_size'][0]+1):
-			glLine([x,0,0],[x,self.app.conf['bed_size'][1],0],[colorMap['grid'][0],colorMap['grid'][1],colorMap['grid'][2],0.3 if x%10 == 0 else 0.1])
+		# # draw bed grid
+		# for y in range(0,self.app.conf['bed_size'][1]+1):
+		# 	glLine([0,y,0],[self.app.conf['bed_size'][0],y,0],[colorMap['grid'][0],colorMap['grid'][1],colorMap['grid'][2],0.3 if y%10 == 0 else 0.1])
+		# for x in range(0,self.app.conf['bed_size'][0]+1):
+		# 	glLine([x,0,0],[x,self.app.conf['bed_size'][1],0],[colorMap['grid'][0],colorMap['grid'][1],colorMap['grid'][2],0.3 if x%10 == 0 else 0.1])
 
 		# -- draw the model layers
 		#    lower layers
@@ -662,6 +669,9 @@ class MyWindow(pyglet.window.Window):
 		for label in self.trLabels:
 			label.draw()
 		
+		if self.hover_label is not None:
+			self.hover_label.draw()
+
 		# reenable depth for next model display
 		glEnable(GL_DEPTH_TEST)
 		glDepthMask(1)
