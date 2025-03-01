@@ -53,7 +53,9 @@ class App:
 		self.zoom = 1.0
 		self.conf = { }
 		self.conf['bed_size'] = [ 200, 200 ]
-		self.hover_text = None
+		self.focus_segment = 0
+		self.focus_text = ""
+		self.focus_vertices = []
 	
 	def main(self):
 		
@@ -183,7 +185,7 @@ class App:
 			#layer.end['Z'] = layer_vertices[:1]
 			
 		t2 = time.time()
-		print("end renderColors in %0.3f ms" % ((t2-t1)*1000.0, ))
+		print("end renderVertices in %0.3f ms" % ((t2-t1)*1000.0, ))
 	
 	def renderIndexedColors(self):
 		t1 = time.time()
@@ -201,7 +203,7 @@ class App:
 				styleCol = int(tool[1:])
 				# append color twice (once per end)
 				layer_vertex_indexed_colors.extend((styleCol, styleCol))
-			
+		
 			# append layer to all layers
 			self.vertex_indexed_colors.append(layer_vertex_indexed_colors)
 		t2 = time.time()
@@ -283,9 +285,25 @@ class App:
 			self.graphics_limbo.append(vertex_list)
 		#	print(nb_layer_vertices, len(self.vertices[layer_idx]), len(self.colors[0][layer_idx]))
 		
+		self.set_focus_segment()
+
 		t2 = time.time()
 		print("end generateGraphics in %0.3f ms" % ((t2-t1)*1000.0, ))
-		
+	
+
+	def set_focus_segment(self):
+		segment = self.model.segments[self.focus_segment]
+		self.focus_text = segment.line
+		start_coord = segment.inLayerIdx*6
+		end_coord = start_coord + 6
+		focus_vertices = self.vertices[segment.layerIdx][start_coord:end_coord]
+		focus_colors = [0,0,0,255,0,0,0,255]
+		self.focus_vertices = pyglet.graphics.vertex_list(2,
+				('v3f/static', focus_vertices),
+				('c4B/static', focus_colors)
+			)
+
+
 	# -- rotate		
 	def rotate_drag_start(self, x, y, button, modifiers):
 		self.rotateDragStartRX = self.RX
@@ -363,6 +381,14 @@ class App:
 		self.layerDragStartX = None
 		self.layerDragStartY = None
 
+	def focus_up(self):
+		self.focus_segment= max(min(self.focus_segment+1, len(self.model.segments)-1), 0)	
+		self.set_focus_segment()
+
+	def focus_down(self):
+		self.focus_segment = max(min(self.focus_segment-1, len(self.model.segments)-1), 0)
+		self.set_focus_segment()
+
 	# -- panning
 	def panning_start(self, x, y, button, modifiers):
 		self.panningStartPX = self.PX
@@ -386,14 +412,6 @@ class App:
 		self.panningStartX = None
 		self.panningStartY = None
 
-	def check_hover(self, x, y):
-		if 100 <= x <= 200 and 100 <= y <= 150:
-			if self.hover_text is None:
-				self.hover_text = 'This is hover text!'
-		else:
-			if self.hover_text is not None:
-				self.hover_text = None
-
 
 def glLine(p1,p2,c):
 	glBegin(GL_LINES)
@@ -408,7 +426,6 @@ class MyWindow(pyglet.window.Window):
 	def __init__(self, app, **kwargs):
 		pyglet.window.Window.__init__(self, **kwargs)
 		self.app = app
-		self.hover_label = None
 		#self.hud()
 	
 	# hud info
@@ -444,7 +461,7 @@ class MyWindow(pyglet.window.Window):
 										font_size=10,color=c_texti,
 										anchor_y='top')
 		self.tlLabels.append(self.statsLabel)
-		#self.tlLabels.append(self.fpsLabel)
+		self.tlLabels.append(self.fpsLabel)
 
 		# status
 		## current Layer
@@ -518,6 +535,10 @@ class MyWindow(pyglet.window.Window):
 			self.app.layer_bottom()
 		elif symbol==pyglet.window.key.END:
 			self.app.layer_top()
+		elif symbol==pyglet.window.key.W:
+			self.app.focus_up()
+		elif symbol==pyglet.window.key.S:
+			self.app.focus_down()
 		else:
 			print("pressed key: %s, mod: %s"%(symbol, modifiers))
 		
@@ -559,14 +580,6 @@ class MyWindow(pyglet.window.Window):
 		z = 1.2 if delta>0 else 1/1.2
 		self.app.zoom = max(1.0, self.app.zoom * z)
 		#print('mouse scroll:', `x, y, dx, dy`, `z, self.app.zoom`)
-
-	def on_mouse_motion(self, x, y, dx, dy):
-		self.app.check_hover(x, y)
-		if self.app.hover_text is not None:
-			self.hover_label = pyglet.text.Label(self.app.hover_text, x=x + 10, y=y, anchor_y='bottom',color=(0, 0, 0, 255))
-		else:
-			self.hover_label = None
-		# TODO: How do we label the segments? I'd like to mouse-over and have it show the segment line text...
 
 	def on_draw(self):
 		#print("draw")
@@ -613,6 +626,7 @@ class MyWindow(pyglet.window.Window):
 		glTranslated(-self.app.model.bbox.cx(), -self.app.model.bbox.cy(), -self.app.model.bbox.cz())
 		
 		# draw axes
+		glLineWidth(1)
 		glBegin(GL_LINES)
 		glColor3f(1,0,0)
 		glVertex3f(0,0,0); glVertex3f(1,0,0); glVertex3f(1,0,0); glVertex3f(1,0.1,0)
@@ -633,7 +647,7 @@ class MyWindow(pyglet.window.Window):
 
 		# -- draw the model layers
 		#    lower layers
-		glLineWidth(1)
+		glLineWidth(2)
 		for graphic in self.app.graphics_old[0:self.app.layerIdx]:
 			graphic.draw(GL_LINES)
 		
@@ -643,10 +657,14 @@ class MyWindow(pyglet.window.Window):
 		graphic.draw(GL_LINES)
 		
 		#    limbo layers
-		glLineWidth(1)
+		glLineWidth(2)
 		for graphic in self.app.graphics_limbo[self.app.layerIdx+1:]:
 			graphic.draw(GL_LINES)
 		
+		# Focus line
+		glLineWidth(4)
+		self.app.focus_vertices.draw(GL_LINES)
+
 		# disable depth for HUD
 		glDisable(GL_DEPTH_TEST)
 		glDepthMask(0)
@@ -658,7 +676,7 @@ class MyWindow(pyglet.window.Window):
 		glMatrixMode(GL_MODELVIEW)
 		glLoadIdentity()
 		
-		self.fpsLabel.text = "%d fps"%int(round(pyglet.clock.get_fps()))
+		self.fpsLabel.text = self.app.focus_text
 		
 		for label in self.blLabels:
 			label.draw()
@@ -668,9 +686,7 @@ class MyWindow(pyglet.window.Window):
 			label.draw()
 		for label in self.trLabels:
 			label.draw()
-		
-		if self.hover_label is not None:
-			self.hover_label.draw()
+	
 
 		# reenable depth for next model display
 		glEnable(GL_DEPTH_TEST)

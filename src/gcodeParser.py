@@ -188,11 +188,11 @@ class GcodeParser:
 		
 	def parse_G2(self, args, type="G2", tool=None):
 		# G2: Arc move
-		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''), tool=tool)
+		self.model.do_G2(self.parseArgs(args), type, tool=tool)
 
 	def parse_G3(self, args, type="G3", tool=None):
 		# G3: Arc move
-		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''), tool=tool)
+		self.model.do_G2(self.parseArgs(args), type, tool=tool)
 		
 	def parse_G20(self, args):
 		# G20: Set Units to Inches
@@ -410,19 +410,24 @@ class GcodeModel:
 		# first layer at Z=0
 		currentLayerIdx = 0
 		currentLayerTool = self.segments[0].tool
-		
+		currentInLayerIdx = 0
+
 		for seg in self.segments:
 			if seg.tool != currentLayerTool:
 				currentLayerTool = seg.tool
 				currentLayerIdx += 1
+				currentInLayerIdx = 0
 			
 			if not self.parser.layer_count:
 				seg.layerIdx = currentLayerIdx
+				seg.inLayerIdx = currentInLayerIdx
+				currentInLayerIdx += 1
 			
 			
 	def splitLayers(self):
 		# split segments into previously detected layers
-		
+		# TODO: Each Layer (tool) should start at the correct tool position point
+
 		# start model at 0
 		coords = {
 			"X":0.0,
@@ -523,6 +528,7 @@ class Segment:
 		self.line = line
 		self.tool = tool
 		self.layerIdx = None
+		self.inLayerIdx = None
 		self.distance = None
 	def __str__(self):
 		return "<Segment: type=%s, lineNb=%d, tool=%s, layerIdx=%d, distance=%f>"%(self.type, self.lineNb, self.tool, self.layerIdx, self.distance)
