@@ -13,7 +13,7 @@ from pyglet.gl import *
 from pyglet.window import key
 from pyglet.window import mouse
 
-from gcodeParser import *
+from src.gcodeParser import *
 import os.path
 import time
 
@@ -132,7 +132,7 @@ class App:
 		self.path = path
 
 		parser = GcodeParser()
-		self.model = parser.parseFile(path)
+		self.model = parser.parseCode(path)
 
 		print("Done! %s" % self.model)
 		

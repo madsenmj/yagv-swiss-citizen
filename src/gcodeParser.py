@@ -3,6 +3,7 @@
 import math
 import re
 import numpy as np
+import re
 
 def preg_match(rex,s,m,opts={}):
    _m = re.search(rex,s)
@@ -20,22 +21,42 @@ class GcodeParser:
 		self.current_type = None
 		self.layer_count = None
 		self.layer_current = None
-		
-	def parseFile(self, path):
-		# read the gcode file
-		with open(path, 'r') as f:
-			# init line counter
-			self.lineNb = 0
-			# for all lines
-			for line in f:
-				# inc line counter
-				self.lineNb += 1
-				# remove trailing linefeed
-				self.line = line.rstrip()
-				# parse a line
-				self.parseLine()
+		self.current_tool = None
+		self.variables = dict()
+	
+
+	def file_to_lines_array(self, file_path):
+		"""Reads a file and returns an array of its lines."""
+		try:
+			with open(file_path, 'r') as file:
+				lines = file.readlines()
+			return lines
+		except FileNotFoundError:
+			return f"Error: File not found at {file_path}"
+	
+
+	def parseCode(self, code):
+		# read the gcode file for initial variable assignments
+		var_multiplier = 1
+		for line in code:
+			if line == "$0":
+				var_multiplier = 10000
+			match = re.match(r"#(\d+)=(-?\d*\.?\d*)", line)
+			if match and match.group(1) and match.group(2):
+				self.variables[match.group(1)] = float(match.group(2)) / var_multiplier
+
+
+		# init line counter
+		self.lineNb = 0
+		# for all lines
+		for line in code:
+			# inc line counter
+			self.lineNb += 1
+			# remove trailing linefeed
+			self.line = line.rstrip()
+			# parse a line
+			self.parseLine()
 			
-		self.model.postProcess()
 		return self.model
 		
 	def parseLine(self):
@@ -66,46 +87,112 @@ class GcodeParser:
 		
 		# TODO strip logical line number & checksum
 		
+		# If line is a variable calculation, update the variable
+		if self.is_variable_calc(command):
+			self.update_variable(command)
+
+		if self.is_tool_line(command):
+			self.update_current_tool(command)
+
 		# code is first word, then args
-		comm = command.split(None, 1)
-		code = comm[0] if (len(comm)>0) else None
-		args = comm[1] if (len(comm)>1) else None
+		splits = re.split(r"([A-z][^A-Z]+)", command)
+		splits = [s.strip() for s in splits if len(s) > 0]
+		comm = splits
+		
+		if len(comm) > 0:
+			if comm[0][0] == 'G':
+				code = comm[0] if (len(comm)>0) else None
+				args = comm[1:] if (len(comm)>1) else None
+			elif comm[0][0] == '$' or comm[0][0] == 'T':
+				code = None
+				args = None
+				self.current_type = None
+			else:
+				code = self.current_type
+				args = comm
 		
 		if code:
 			if hasattr(self, "parse_"+code):
-				getattr(self, "parse_"+code)(args)
+				self.current_type = code
+				getattr(self, "parse_"+code)(args, tool=self.current_tool)
 			else:
 				self.warn("Unknown code '%s'"%code)
 		
 	def parseArgs(self, args):
 		dic = {}
 		if args:
-			bits = args.split()
-			for bit in bits:
+			for bit in args:
+				if "#" in bit:
+					bit = self.sub_variable_string(bit)
 				letter = bit[0]
 				try:
-					coord = float(bit[1:])
+					arg_string = bit[1:]
+					if self.is_calc_arg(arg_string):
+						coord = self.parse_calc(arg_string)
+					else:
+						coord = float(arg_string)
 				except ValueError:
 					coord = 1
 				dic[letter] = coord
 		return dic
 
-	def parse_G0(self, args):
+	def is_calc_arg(self, arg_string):
+		return re.search(r"-?\d*\.\d*[+-/*]\d*\.\d*", arg_string)
+	
+	def sub_variable_string(self, var_string):
+		var = re.match(r".*#(\d+)", var_string)
+		if var:
+			replacement = self.variables.get(var.group(1), 0.0)
+		else:
+			replacement = 0.0
+		return re.sub(r"#\d+", str(replacement), var_string)
+
+	def parse_calc(self, calc_string):
+		subbed_string = calc_string.replace("[", "(").replace("]", ")")
+		return eval(subbed_string)
+
+	def is_variable_calc(self, code_line):
+		return re.search(r"#(\d+)=((-\[)|[\[#])", code_line)
+
+	def update_variable(self, code_line):
+		match = re.match(r"#(\d+)=(.*)", code_line)
+		calc_string = match.group(2)
+		if "#" in calc_string:
+			calc_string = self.sub_variable_string(calc_string)
+		new_value = self.parse_calc(calc_string)
+		self.variables[match.group(1)] = new_value
+
+	def is_tool_line(self, command):
+		return command[0] == "T"
+
+	def update_current_tool(self, command: str):
+		if command == "T0":
+			self.current_tool = None
+		else:
+			tool_number = command[1:]
+			if len(tool_number) == 3:
+				self.current_tool = "T" + tool_number[0]
+			else:
+				self.current_tool = "T" + tool_number[:2]
+
+
+
+	def parse_G0(self, args, tool=None):
 		# G0: Rapid move
 		# same as a controlled move for us (& reprap FW)
 		self.parse_G1(args, "G0")
 		
-	def parse_G1(self, args, type="G1"):
+	def parse_G1(self, args, type="G1", tool=None):
 		# G1: Controlled move
-		self.model.do_G1(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''))
+		self.model.do_G1(self.parseArgs(args), type, tool=tool)
 		
-	def parse_G2(self, args, type="G2"):
+	def parse_G2(self, args, type="G2", tool=None):
 		# G2: Arc move
-		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''))
+		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''), tool=tool)
 
-	def parse_G3(self, args, type="G3"):
+	def parse_G3(self, args, type="G3", tool=None):
 		# G3: Arc move
-		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''))
+		self.model.do_G2(self.parseArgs(args), type+(":"+self.current_type if self.current_type else ''), tool=tool)
 		
 	def parse_G20(self, args):
 		# G20: Set Units to Inches
@@ -178,21 +265,27 @@ class GcodeModel:
 		# save parser for messages
 		self.parser = parser
 		# latest coordinates & extrusion relative to offset, feedrate
-		self.relative = {
+		self.position = {
 			"X":0.0,
 			"Y":0.0,
 			"Z":0.0,
-			"F":0.0,
-			"E":0.0,
 			"I":0.0,
 			"J":0.0,
+			"K":0.0
 		}
-		# offsets for relative coordinates and position reset (G92)
+		# offsets for relative coordinates
 		self.offset = {
 			"X":0.0,
 			"Y":0.0,
 			"Z":0.0,
-			"E":0.0}
+			"U":0.0,
+			"V":0.0,
+			"W":0.0}
+		self.relative = {
+			'U': 'X',
+			'V': 'Y',
+			'W': 'Z'
+		}
 		# if true, args for move (G1) are given relatively (default: absolute)
 		self.isRelative = False
 		# the segments
@@ -202,17 +295,16 @@ class GcodeModel:
 		self.extrudate = None
 		self.bbox = None
 	
-	def do_G1(self, args, type):
+	def do_G1(self, args, type, tool=None):
 		# G0/G1: Rapid/Controlled move
 		# clone previous coords
-		coords = dict(self.relative)
+		coords = dict(self.position)
 		# update changed coords
 		for axis in args.keys():
 			if axis in coords:
-				if self.isRelative:
-					coords[axis] += args[axis]
-				else:
-					coords[axis] = args[axis]
+				coords[axis] = args[axis]
+			elif axis in self.relative:
+				coords[self.relative[axis]] += args[axis]
 			else:
 				self.warn("Unknown axis '%s'"%axis)
 		# build segment
@@ -220,17 +312,15 @@ class GcodeModel:
 			"X": self.offset["X"] + coords["X"],
 			"Y": self.offset["Y"] + coords["Y"],
 			"Z": self.offset["Z"] + coords["Z"],
-			"F": coords["F"],	# no feedrate offset
-			"E": self.offset["E"] + coords["E"]
 		}
-		seg = Segment(type, absolute, self.parser.lineNb, self.parser.line)
+		seg = Segment(type, absolute, self.parser.lineNb, self.parser.line, tool=tool)
 		self.addSegment(seg)
 		# update model coords
-		self.relative = coords
+		self.position = coords
 
-	def do_G2(self, args, type):
+	def do_G2(self, args, type, tool=None):
 		# G2 & G3: Arc move
-		coords = dict(self.relative)           # -- clone previous coords
+		coords = dict(self.position)           # -- clone previous coords
 		for axis in args.keys():               # -- update changed coords
 			if axis in coords:
 				if self.isRelative:
@@ -243,9 +333,9 @@ class GcodeModel:
 		dir = 1                                    # -- ccw is angle positive
 		if type.find("G2")==0: 
 			dir = -1                                # -- cw is angle negative
-		xp = self.relative["X"] + coords["I"]      # -- center point of arc (static), current pos
-		yp = self.relative["Y"] + coords["J"]
-		es = self.relative["E"]
+		xp = self.position["X"] + coords["I"]      # -- center point of arc (static), current pos
+		yp = self.position["Y"] + coords["J"]
+		es = self.position["E"]
 		ep = coords["E"] - es
 		as_ = math.atan2(-coords["J"],-coords["I"])      # -- angle start (current pos)
 		ae_ = math.atan2(coords["Y"]-yp,coords["X"]-xp)  # -- angle end (new position)
@@ -273,10 +363,10 @@ class GcodeModel:
 					"F": coords["F"],	# no feedrate offset
 					"E": self.offset["E"] + coords["E"]
 				}
-				seg = Segment(type, absolute, self.parser.lineNb, self.parser.line)
+				seg = Segment(type, absolute, self.parser.lineNb, self.parser.line, tool=tool)
 				self.addSegment(seg)
 				# update model coords
-				self.relative = coords
+				self.position = coords
 		
 	def do_G28(self, args):
 		# G28: Move to Origin
@@ -293,8 +383,8 @@ class GcodeModel:
 		for axis in args.keys():
 			if axis in self.offset:
 				# transfer value from relative to offset
-				self.offset[axis] += self.relative[axis] - args[axis]
-				self.relative[axis] = args[axis]
+				self.offset[axis] += self.position[axis] - args[axis]
+				self.position[axis] = args[axis]
 			else:
 				self.warn("Unknown axis '%s'"%axis)
 
@@ -473,11 +563,12 @@ class GcodeModel:
 		return "<GcodeModel: len(segments)=%d, len(layers)=%d, distance=%f, extrudate=%f, bbox=%s>"%(len(self.segments), len(self.layers), self.distance, self.extrudate, self.bbox)
 	
 class Segment:
-	def __init__(self, type, coords, lineNb, line):
+	def __init__(self, type, coords, lineNb, line, tool=None):
 		self.type = type
 		self.coords = coords
 		self.lineNb = lineNb
 		self.line = line
+		self.tool = tool
 		self.style = None
 		self.layerIdx = None
 		self.distance = None
@@ -501,6 +592,7 @@ if __name__ == '__main__':
 	path = "test.gcode"
 
 	parser = GcodeParser()
-	model = parser.parseFile(path)
-
+	code = parser.file_to_lines_array(path)
+	model = parser.parseCode(code)
+	model.postProcess()
 	print(model)
