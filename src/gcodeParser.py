@@ -23,7 +23,7 @@ class GcodeParser:
 		self.layer_current = None
 		self.current_tool = None
 		self.variables = dict()
-	
+
 
 	def file_to_lines_array(self, file_path):
 		"""Reads a file and returns an array of its lines."""
@@ -286,6 +286,27 @@ class GcodeModel:
 			'V': 'Y',
 			'W': 'Z'
 		}
+		self.tool_position_points = {
+			"gang":{
+				"X":2.0,
+				"Y":0.0,
+				"Z":0.0,
+			},
+			"sub": {
+				"X":0.0,
+				"Y":0.0,
+				"Z":-.5,	
+			},
+			"back":{
+				"X":0.0,
+				"Y":0.0,
+				"Z":-.5,
+			}
+		}
+		self.tool_dict = {**{f"T{n}":"gang" for n in range(1,11)},
+					**{f"T{n}":"sub" for n in range(21,24)},
+					**{"T30":"sub"},
+					**{f"T{n}":"back" for n in range(31,35)}}
 		# if true, args for move (G1) are given relatively (default: absolute)
 		self.isRelative = False
 		# the segments
@@ -426,16 +447,7 @@ class GcodeModel:
 			
 	def splitLayers(self):
 		# split segments into previously detected layers
-		# TODO: Each Layer (tool) should start at the correct tool position point
 
-		# start model at 0
-		coords = {
-			"X":0.0,
-			"Y":0.0,
-			"Z":0.0,
-			"F":0.0,
-			"E":0.0}
-			
 		# init layer store
 		self.layers = []
 		
@@ -445,6 +457,7 @@ class GcodeModel:
 		for seg in self.segments:
 			# next layer
 			if currentLayerIdx != seg.layerIdx:
+				coords = self.tool_position_points[self.tool_dict.get(seg.tool,"T1")]
 				layer = Layer(seg.tool)
 				layer.start = coords
 				self.layers.append(layer)

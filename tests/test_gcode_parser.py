@@ -1,6 +1,6 @@
 import pytest
 from src.gcodeParser import GcodeParser
-from src.gcodeParser import Segment
+from src.gcodeParser import GcodeModel
 
 class Test_calc_string:
     def test_negative_string(self):
@@ -197,3 +197,16 @@ class Test_Segment_Classification:
         assert segments[2].layerIdx == 1
         assert segments[3].layerIdx == 2
         assert segments[4].layerIdx == 2
+
+class Test_Split_Layers:
+    def test_starts_gang_at_pos_point(self):
+        parser = GcodeParser()
+        lines = ["T100","G1X1.0Y2.0Z-1.2", "T2100", "G1U1.0V2.0W-1.2","G1U1.0", "T3100","G1X1.0Y2.0Z-1.2","G1W1.0"]
+        parser.parseCode(lines)
+        parser.model.classifySegments()
+        parser.model.splitLayers()
+        layers = parser.model.layers
+        assert len(layers) == 3
+        assert layers[0].start == parser.model.tool_position_points[parser.model.tool_dict["T1"]]
+        assert layers[1].start == parser.model.tool_position_points[parser.model.tool_dict["T21"]]
+        assert layers[2].start == parser.model.tool_position_points[parser.model.tool_dict["T31"]]

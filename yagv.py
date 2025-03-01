@@ -56,6 +56,7 @@ class App:
 		self.focus_segment = 0
 		self.focus_text = ""
 		self.focus_vertices = []
+		self.layerIdx = 0
 	
 	def main(self):
 		
@@ -112,8 +113,8 @@ class App:
 
 		self.load(path)
 
-		# default to the middle layer
-		self.layerIdx = len(self.model.layers)//2
+		# default to the first layer
+		self.layerIdx = 0
 		self.window.hud()
 
 		#img = pyglet.resource.image("icon.png")
@@ -165,15 +166,15 @@ class App:
 			
 			layer_vertices = []
 			
-			x = layer.start["X"]
-			y = layer.start["Y"]
+			x = layer.start["X"]/2
+			y = layer.start["Y"]/2
 			z = layer.start["Z"]
 			for seg in layer.segments:
 				layer_vertices.append(x)
 				layer_vertices.append(y)
 				layer_vertices.append(z)
-				x = seg.coords["X"]
-				y = seg.coords["Y"]
+				x = seg.coords["X"]/2
+				y = seg.coords["Y"]/2
 				z = seg.coords["Z"]
 				layer_vertices.append(x)
 				layer_vertices.append(y)
@@ -292,11 +293,12 @@ class App:
 	
 
 	def set_focus_segment(self):
-		segment = self.model.segments[self.focus_segment]
+		# print(self.layerIdx, self.focus_segment)
+		segment = self.model.layers[self.layerIdx].segments[self.focus_segment]
 		self.focus_text = segment.line
 		start_coord = segment.inLayerIdx*6
 		end_coord = start_coord + 6
-		focus_vertices = self.vertices[segment.layerIdx][start_coord:end_coord]
+		focus_vertices = self.vertices[self.layerIdx][start_coord:end_coord]
 		focus_colors = [0,0,0,255,0,0,0,255]
 		self.focus_vertices = pyglet.graphics.vertex_list(2,
 				('v3f/static', focus_vertices),
@@ -358,6 +360,8 @@ class App:
 			self.window.layerLabel.text = "layer %d (%s..%s)" % (self.layerIdx,self.model.layers[self.layerIdx].tool,self.model.layers[self.layerIdx].tool)
 		else:
 			self.window.layerLabel.text = "layer %d (%s)" % (self.layerIdx,self.model.layers[self.layerIdx].tool)
+		self.focus_segment = 0
+		self.set_focus_segment()
 		#print(self.model.layers[self.layerIdx].bbox.zmin)
 
 	def layer_up(self):
@@ -382,11 +386,11 @@ class App:
 		self.layerDragStartY = None
 
 	def focus_up(self):
-		self.focus_segment= max(min(self.focus_segment+1, len(self.model.segments)-1), 0)	
+		self.focus_segment= max(min(self.focus_segment+1, len(self.model.layers[self.layerIdx].segments)-1), 0)	
 		self.set_focus_segment()
 
 	def focus_down(self):
-		self.focus_segment = max(min(self.focus_segment-1, len(self.model.segments)-1), 0)
+		self.focus_segment = max(min(self.focus_segment-1, len(self.model.layers[self.layerIdx].segments)-1), 0)
 		self.set_focus_segment()
 
 	# -- panning
@@ -522,7 +526,7 @@ class MyWindow(pyglet.window.Window):
 			self.app.panning_end(x, y, button, modifiers)
 
 	def on_key_release(self, symbol, modifiers):
-		print("pressed key: %s, mod: %s"%(symbol, modifiers))
+		#print("pressed key: %s, mod: %s"%(symbol, modifiers))
 		#print("pressed key: %s, mod: %s"%(pyglet.window.key.R, pyglet.window.key.MOD_CTRL))
 
 		if symbol==pyglet.window.key.R and modifiers & pyglet.window.key.MOD_CTRL:
@@ -601,13 +605,14 @@ class MyWindow(pyglet.window.Window):
 		glEnable(GL_BLEND)
 		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 		
-		# rotate axes to match reprap style
-		glRotated(-90, 1,0,0)
-
+		# rotate axes to match machine
+		glRotated(90, 0,0,1)
+		glRotated(90, 1,0,0)
+		
 		# user rotate model
 		glRotated(-self.app.RX, 1,0,0)
 		glRotated(self.app.RZ, 0,0,1)
-		
+		#print(self.app.RX, self.app.RZ)
 		# Todo check this
 		glTranslated(0,0,-0.5)
 		
