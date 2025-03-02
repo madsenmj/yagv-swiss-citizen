@@ -200,6 +200,7 @@ class Test_Segment_Classification:
 
 class Test_Split_Layers:
     def test_starts_gang_at_pos_point(self):
+        # TODO: This should start at the previous Z position for tools on the gang
         parser = GcodeParser()
         lines = ["T100","G1X1.0Y2.0Z-1.2", "T2100", "G1U1.0V2.0W-1.2","G1U1.0", "T3100","G1X1.0Y2.0Z-1.2","G1W1.0"]
         parser.parseCode(lines)
@@ -210,3 +211,9 @@ class Test_Split_Layers:
         assert layers[0].start == parser.model.tool_position_points[parser.model.tool_dict["T1"]]
         assert layers[1].start == parser.model.tool_position_points[parser.model.tool_dict["T21"]]
         assert layers[2].start == parser.model.tool_position_points[parser.model.tool_dict["T31"]]
+
+
+# TODO: Get the G2/G3 working- What does this need to look like for AutoCAD?
+# TODO: Get G32/G83/G87 working
+# TODO: Get while loops working
+# TODO: Get an output utility for AutoCAD LT script language working
